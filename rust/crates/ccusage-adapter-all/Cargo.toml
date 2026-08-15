@@ -30,4 +30,5 @@ serde_json.workspace = true
 
 [dev-dependencies]
 ccusage-test-support.workspace = true
+sqlite.workspace = true
 insta.workspace = true

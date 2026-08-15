@@ -329,16 +329,7 @@ fn load_base_rows(
             index: 16,
             agent: BUILT_IN_AGENT_NAMES[16],
             progress_agent: crate::progress::UsageLoadAgent("ZCode"),
-            load: Box::new(|| {
-                load_priced_summary_agent_rows(
-                    "zcode",
-                    load_kind,
-                    &loader_shared,
-                    pricing,
-                    zcode::load_entries,
-                    zcode::summarize_entries,
-                )
-            }),
+            load: Box::new(|| load_zcode_rows(load_kind, &loader_shared, pricing)),
         },
     ];
     let named_pi_stores = resolve_named_pi_store_paths(&shared.pi_stores)?;
@@ -705,6 +696,24 @@ fn load_qwen_rows(kind: AgentReportKind, shared: &SharedArgs) -> Result<AgentRow
     })
 }
 
+fn load_zcode_rows(
+    kind: AgentReportKind,
+    shared: &SharedArgs,
+    pricing: &PricingMap,
+) -> Result<AgentRows> {
+    let mut entries = zcode::load_entries(shared, pricing)?;
+    let detected = !entries.is_empty();
+    filter_loaded_entries_by_date(&mut entries, shared);
+    let summaries = zcode::summarize_entries(&entries, kind)?;
+    // ZCode session summaries carry the session directory, so unified
+    // session reports surface it the way the pi-format agents already do.
+    let include_project_path = kind == AgentReportKind::Session;
+    Ok(AgentRows {
+        rows: summary_rows("zcode", summaries, include_project_path),
+        detected,
+    })
+}
+
 fn summarize_entry_sessions(entries: &[LoadedEntry]) -> Result<Vec<UsageSummary>> {
     let mut groups = BTreeMap::<(String, String), SessionAccumulator>::new();
     for entry in entries {
@@ -876,6 +885,56 @@ mod tests {
     use super::*;
     use ccusage_cli::NamedPiStore;
     use ccusage_test_support::{EnvVarGuard, fs_fixture};
+
+    #[test]
+    fn zcode_session_rows_carry_project_path_in_unified_reports() {
+        let fixture = fs_fixture!({});
+        let db_path = fixture.path("cli/db/db.sqlite");
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+        let db = sqlite::open(&db_path).unwrap();
+        db.execute(
+            "
+            CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT);
+            CREATE TABLE model_usage (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                model_id TEXT,
+                status TEXT NOT NULL,
+                started_at INTEGER NOT NULL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cache_creation_input_tokens INTEGER,
+                cache_read_input_tokens INTEGER
+            );
+            ",
+        )
+        .unwrap();
+        db.execute("INSERT INTO session (id, directory) VALUES ('session-1', '/workspace/zcode')")
+            .unwrap();
+        db.execute("INSERT INTO model_usage VALUES ('usage-1', 'session-1', 'GLM-5.2', 'completed', 1735689600123, 1000, 300, 0, 200)").unwrap();
+        drop(db);
+        let _env = EnvVarGuard::set("ZCODE_HOME", fixture.root());
+        let shared = SharedArgs::default();
+        let pricing = PricingMap::load_embedded();
+
+        let session = load_zcode_rows(AgentReportKind::Session, &shared, &pricing).unwrap();
+
+        assert_eq!(session.rows.len(), 1);
+        assert_eq!(
+            session.rows[0].metadata.as_ref().unwrap()["projectPath"],
+            "/workspace/zcode"
+        );
+
+        let daily = load_zcode_rows(AgentReportKind::Daily, &shared, &pricing).unwrap();
+
+        assert_eq!(daily.rows.len(), 1);
+        assert!(
+            daily.rows[0]
+                .metadata
+                .as_ref()
+                .is_none_or(|metadata| metadata.get("projectPath").is_none())
+        );
+    }
 
     fn usage_summary(date: &str, input_tokens: u64) -> UsageSummary {
         UsageSummary {

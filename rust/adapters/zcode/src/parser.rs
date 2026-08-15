@@ -101,12 +101,16 @@ pub(super) fn to_loaded_entry(
     pricing: &PricingMap,
 ) -> LoadedEntry {
     let candidates = model_candidates(&entry.model);
+    // Candidate precedence is pricing existence, not a positive cost: an
+    // override that prices a model at exactly zero (for example a
+    // subscription-backed flat-rate GLM id) must stay authoritative instead
+    // of falling through to the next alias.
     let cost = candidates
         .iter()
+        .find(|candidate| pricing.find(candidate).is_some())
         .map(|candidate| {
             calculate_cost_for_usage(Some(candidate), entry.usage, None, mode, Some(pricing))
         })
-        .find(|cost| *cost > 0.0)
         .unwrap_or(0.0);
     let missing_pricing_model = (mode != CostMode::Display)
         .then(|| {
@@ -253,6 +257,33 @@ mod tests {
             assert_eq!(loaded.cost, 0.0);
             assert_eq!(loaded.missing_pricing_model.as_deref(), Some(model));
         }
+    }
+
+    #[test]
+    fn zero_cost_pricing_override_stays_authoritative() {
+        let zero = crate::cli::PricingOverride {
+            input_cost_per_token: Some(0.0),
+            output_cost_per_token: Some(0.0),
+            cache_creation_input_token_cost: Some(0.0),
+            cache_read_input_token_cost: Some(0.0),
+            ..crate::cli::PricingOverride::default()
+        };
+        let model = "GLM-5.3";
+        let pricing = PricingMap::load_with_overrides(
+            true,
+            false,
+            std::iter::once((&model.to_string(), &zero)),
+        );
+
+        let loaded = to_loaded_entry(
+            entry(model, glm_usage()),
+            None,
+            CostMode::Calculate,
+            &pricing,
+        );
+
+        assert_eq!(loaded.cost, 0.0);
+        assert_eq!(loaded.missing_pricing_model, None);
     }
 
     #[test]
