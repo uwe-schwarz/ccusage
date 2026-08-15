@@ -121,12 +121,14 @@ pub struct PricingMap {
     context_limits: FxHashMap<String, u64>,
     enable_models_dev_fallback: bool,
     enable_embedded_models_dev_fallback: bool,
-    /// Model keys whose pricing a user override or a live refresh supplied,
-    /// as opposed to the embedded snapshots and built-ins. Lookups with
-    /// several candidate spellings prefer these so a repriced alias wins
-    /// over a frozen built-in spelling of the same model.
-    repriced: FxHashSet<String>,
-    mark_repriced: bool,
+    /// Model keys a live pricing refresh supplied, as opposed to the
+    /// embedded snapshots and built-ins.
+    refreshed: FxHashSet<String>,
+    /// Model keys a user override supplied. Overrides are the most
+    /// authoritative pricing source, so lookups with several candidate
+    /// spellings check them before `refreshed` keys.
+    overridden: FxHashSet<String>,
+    mark_refreshed: bool,
     find_cache: OnceLock<Mutex<FxHashMap<String, Option<Pricing>>>>,
 }
 
@@ -219,8 +221,9 @@ impl Default for PricingMap {
             context_limits: FxHashMap::default(),
             enable_models_dev_fallback: false,
             enable_embedded_models_dev_fallback: false,
-            repriced: FxHashSet::default(),
-            mark_repriced: false,
+            refreshed: FxHashSet::default(),
+            overridden: FxHashSet::default(),
+            mark_refreshed: false,
             find_cache: OnceLock::new(),
         }
     }
@@ -700,9 +703,9 @@ impl PricingMap {
 
     pub fn load_json(&mut self, json: &str) -> usize {
         let fast_multiplier_overrides = FastMultiplierOverrides::load();
-        self.mark_repriced = true;
+        self.mark_refreshed = true;
         let loaded = self.load_json_with_overrides(json, &fast_multiplier_overrides);
-        self.mark_repriced = false;
+        self.mark_refreshed = false;
         loaded
     }
 
@@ -733,8 +736,8 @@ impl PricingMap {
                 .and_then(|entry| entry.fast)
                 .or_else(|| fast_multiplier_overrides.multiplier_for(&model))
                 .unwrap_or(1.0);
-            if self.mark_repriced {
-                self.repriced.insert(model.clone());
+            if self.mark_refreshed {
+                self.refreshed.insert(model.clone());
             }
             self.entries.insert(
                 model.clone(),
@@ -995,7 +998,13 @@ impl PricingMap {
     /// Whether a user override or a live refresh supplied this exact key's
     /// pricing, rather than the embedded snapshots or built-ins.
     pub fn is_repriced(&self, model: &str) -> bool {
-        self.repriced.contains(model)
+        self.overridden.contains(model) || self.refreshed.contains(model)
+    }
+
+    /// Whether a user override supplied this exact key's pricing. Overrides
+    /// outrank live-refresh pricing, so candidate lookups check this first.
+    pub fn is_overridden(&self, model: &str) -> bool {
+        self.overridden.contains(model)
     }
 
     pub fn find(&self, model: &str) -> Option<Pricing> {
@@ -1205,7 +1214,7 @@ impl PricingMap {
     }
 
     fn apply_override(&mut self, model: &str, override_value: &PricingOverride) {
-        self.repriced.insert(model.to_string());
+        self.overridden.insert(model.to_string());
         let base = self
             .entries
             .get(model)

@@ -109,7 +109,12 @@ pub(super) fn to_loaded_entry(
     // raw built-in spelling.
     let cost = candidates
         .iter()
-        .find(|candidate| pricing.is_repriced(candidate))
+        .find(|candidate| pricing.is_overridden(candidate))
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|candidate| pricing.is_repriced(candidate))
+        })
         .or_else(|| {
             candidates
                 .iter()
@@ -316,6 +321,39 @@ mod tests {
 
         // 700 * 2 + 300 * 8 + 200 * 0.5, per million tokens - the alias
         // rates, not the built-in raw spelling's 1.4 / 4.4 / 0.26.
+        assert!((loaded.cost - 0.0039).abs() < 1e-9);
+    }
+
+    #[test]
+    fn user_override_outranks_refreshed_raw_key() {
+        let alias_override = crate::cli::PricingOverride {
+            input_cost_per_token: Some(2e-6),
+            output_cost_per_token: Some(8e-6),
+            cache_read_input_token_cost: Some(0.5e-6),
+            ..crate::cli::PricingOverride::default()
+        };
+        let mut pricing = PricingMap::load_with_overrides(
+            true,
+            false,
+            std::iter::once((&"zai/glm-5.3".to_string(), &alias_override)),
+        );
+        // A live refresh repricing only the raw spelling must not mask the
+        // user's alias override.
+        pricing.load_json(
+            r#"{"GLM-5.3": {
+                "input_cost_per_token": 9.9e-6,
+                "output_cost_per_token": 19.9e-6,
+                "cache_read_input_token_cost": 9.9e-6
+            }}"#,
+        );
+
+        let loaded = to_loaded_entry(
+            entry("GLM-5.3", glm_usage()),
+            None,
+            CostMode::Calculate,
+            &pricing,
+        );
+
         assert!((loaded.cost - 0.0039).abs() < 1e-9);
     }
 

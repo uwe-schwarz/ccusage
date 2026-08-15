@@ -1,0 +1,176 @@
+---
+source: adapters/zcode/src/lib.rs
+expression: reports_from_fixture_db()
+---
+{
+  "daily": {
+    "daily": [
+      {
+        "cacheCreationTokens": 100,
+        "cacheReadTokens": 200,
+        "date": "2025-01-01",
+        "inputTokens": 760,
+        "modelBreakdowns": [
+          {
+            "cacheCreationTokens": 100,
+            "cacheReadTokens": 200,
+            "cost": 0.002356,
+            "inputTokens": 700,
+            "modelName": "GLM-5.2",
+            "outputTokens": 300
+          },
+          {
+            "cacheCreationTokens": 0,
+            "cacheReadTokens": 0,
+            "cost": 0.0,
+            "inputTokens": 60,
+            "modelName": "custom-provider-model",
+            "outputTokens": 6
+          }
+        ],
+        "modelsUsed": [
+          "GLM-5.2",
+          "custom-provider-model"
+        ],
+        "outputTokens": 306,
+        "totalCost": 0.002356,
+        "totalTokens": 1366
+      },
+      {
+        "cacheCreationTokens": 0,
+        "cacheReadTokens": 300,
+        "date": "2025-01-02",
+        "inputTokens": 500,
+        "modelBreakdowns": [
+          {
+            "cacheCreationTokens": 0,
+            "cacheReadTokens": 300,
+            "cost": 0.0016640000000000001,
+            "inputTokens": 500,
+            "modelName": "GLM-5.2",
+            "outputTokens": 200
+          }
+        ],
+        "modelsUsed": [
+          "GLM-5.2"
+        ],
+        "outputTokens": 200,
+        "totalCost": 0.0016640000000000001,
+        "totalTokens": 1000
+      }
+    ],
+    "totals": {
+      "cacheCreationTokens": 100,
+      "cacheReadTokens": 500,
+      "inputTokens": 1260,
+      "outputTokens": 506,
+      "totalCost": 0.00402,
+      "totalTokens": 2366
+    }
+  },
+  "monthly": {
+    "monthly": [
+      {
+        "cacheCreationTokens": 100,
+        "cacheReadTokens": 500,
+        "inputTokens": 1260,
+        "modelBreakdowns": [
+          {
+            "cacheCreationTokens": 100,
+            "cacheReadTokens": 500,
+            "cost": 0.00402,
+            "inputTokens": 1200,
+            "modelName": "GLM-5.2",
+            "outputTokens": 500
+          },
+          {
+            "cacheCreationTokens": 0,
+            "cacheReadTokens": 0,
+            "cost": 0.0,
+            "inputTokens": 60,
+            "modelName": "custom-provider-model",
+            "outputTokens": 6
+          }
+        ],
+        "modelsUsed": [
+          "GLM-5.2",
+          "custom-provider-model"
+        ],
+        "month": "2025-01",
+        "outputTokens": 506,
+        "totalCost": 0.00402,
+        "totalTokens": 2366
+      }
+    ],
+    "totals": {
+      "cacheCreationTokens": 100,
+      "cacheReadTokens": 500,
+      "inputTokens": 1260,
+      "outputTokens": 506,
+      "totalCost": 0.00402,
+      "totalTokens": 2366
+    }
+  },
+  "session": {
+    "sessions": [
+      {
+        "cacheCreationTokens": 100,
+        "cacheReadTokens": 500,
+        "firstActivity": "2025-01-01T00:00:00.123Z",
+        "inputTokens": 1200,
+        "lastActivity": "2025-01-02T00:00:00.123Z",
+        "modelBreakdowns": [
+          {
+            "cacheCreationTokens": 100,
+            "cacheReadTokens": 500,
+            "cost": 0.00402,
+            "inputTokens": 1200,
+            "modelName": "GLM-5.2",
+            "outputTokens": 500
+          }
+        ],
+        "modelsUsed": [
+          "GLM-5.2"
+        ],
+        "outputTokens": 500,
+        "projectPath": "/alpha",
+        "sessionId": "session-1",
+        "totalCost": 0.00402,
+        "totalTokens": 2300
+      },
+      {
+        "cacheCreationTokens": 0,
+        "cacheReadTokens": 0,
+        "firstActivity": "2025-01-01T00:00:00.123Z",
+        "inputTokens": 60,
+        "lastActivity": "2025-01-01T00:00:00.123Z",
+        "modelBreakdowns": [
+          {
+            "cacheCreationTokens": 0,
+            "cacheReadTokens": 0,
+            "cost": 0.0,
+            "inputTokens": 60,
+            "modelName": "custom-provider-model",
+            "outputTokens": 6
+          }
+        ],
+        "modelsUsed": [
+          "custom-provider-model"
+        ],
+        "outputTokens": 6,
+        "projectPath": "/beta",
+        "sessionId": "session-2",
+        "totalCost": 0.0,
+        "totalTokens": 66
+      }
+    ],
+    "totals": {
+      "cacheCreationTokens": 100,
+      "cacheReadTokens": 500,
+      "inputTokens": 1260,
+      "outputTokens": 506,
+      "totalCost": 0.00402,
+      "totalTokens": 2366
+    }
+  }
+}

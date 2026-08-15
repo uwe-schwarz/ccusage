@@ -560,6 +560,7 @@ fn isolated_agent_env(
         "KIMI_DATA_DIR",
         "QWEN_DATA_DIR",
         "GROK_HOME",
+        "ZCODE_HOME",
     ]
     .into_iter()
     .map(|key| (key, None::<OsString>))
@@ -593,6 +594,59 @@ fn assert_unified_rows_use_grok_home(kind: AgentReportKind) {
     assert_eq!(result.rows[0].input_tokens, 60);
     assert_eq!(result.rows[0].cache_read_tokens, 40);
     assert_eq!(result.rows[0].output_tokens, 20);
+}
+
+fn assert_unified_rows_use_zcode_home(kind: AgentReportKind) {
+    let fixture = fs_fixture!({});
+    let db_path = fixture.path("zcode-home/cli/db/db.sqlite");
+    std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+    let db = sqlite::open(&db_path).unwrap();
+    db.execute(
+        "
+        CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT);
+        CREATE TABLE model_usage (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            model_id TEXT,
+            status TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            cache_creation_input_tokens INTEGER,
+            cache_read_input_tokens INTEGER
+        );
+        ",
+    )
+    .unwrap();
+    db.execute("INSERT INTO session (id, directory) VALUES ('sess-zcode', '/workspace/zcode')")
+        .unwrap();
+    db.execute("INSERT INTO model_usage VALUES ('usage-1', 'sess-zcode', 'GLM-5.3', 'completed', 1750000000123, 1000, 300, 0, 200)").unwrap();
+    drop(db);
+    let _env = isolated_agent_env(
+        &fixture,
+        "ZCODE_HOME",
+        fixture.path("zcode-home").into_os_string(),
+    );
+    let shared = fixture_shared("20250615", "20250615");
+
+    let result = loader::load_rows(kind, &shared).unwrap();
+
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.detected_agents, vec!["zcode"]);
+    // fresh input 800 after cache-read folding, cache read 200, output 300.
+    assert_eq!(result.rows[0].input_tokens, 800);
+    assert_eq!(result.rows[0].cache_read_tokens, 200);
+    assert_eq!(result.rows[0].output_tokens, 300);
+}
+
+#[test]
+fn unified_daily_rows_use_zcode_home() {
+    assert_unified_rows_use_zcode_home(AgentReportKind::Daily);
+}
+
+#[test]
+fn unified_session_rows_use_zcode_home() {
+    assert_unified_rows_use_zcode_home(AgentReportKind::Session);
 }
 
 #[test]
