@@ -1838,6 +1838,15 @@ impl PricingMap {
                 ..glm_base
             },
         );
+        // zcode reports model ids in the exact case it logs them ("GLM-5.2"),
+        // and the lowercase zai/ variants cover API-style lookups; rates follow
+        // the models.dev snapshot until it publishes these spellings itself.
+        for model in ["glm-5.2", "GLM-5.2", "zai/glm-5.2"] {
+            self.put_builtin_glm(model, glm_pricing(1.4e-6, 4.4e-6, 0.28e-6));
+        }
+        for model in ["glm-5.3", "GLM-5.3", "zai/glm-5.3"] {
+            self.put_builtin_glm(model, glm_pricing(1.4e-6, 4.4e-6, 0.26e-6));
+        }
         self.context_limits.insert("gpt-5.5".to_string(), 1_050_000);
         self.context_limits
             .insert("grok-4.3".to_string(), 1_000_000);
@@ -2440,6 +2449,23 @@ mod tests {
         assert_eq!(zai_glm_45.cache_create, 0.0);
         assert_eq!(zai_glm_45.cache_read, 0.11e-6);
         assert_eq!(pricing.context_limit("zai/glm-4.5"), Some(128_000));
+    }
+    #[test]
+    fn provides_glm_5_2_and_5_3_pricing_for_zcode_model_identifiers() {
+        let pricing = PricingMap::load_embedded();
+        for (model, cache_read) in [
+            ("glm-5.2", 0.28e-6),
+            ("GLM-5.2", 0.28e-6),
+            ("zai/glm-5.2", 0.28e-6),
+            ("glm-5.3", 0.26e-6),
+            ("GLM-5.3", 0.26e-6),
+            ("zai/glm-5.3", 0.26e-6),
+        ] {
+            let model_pricing = pricing.find(model).unwrap();
+            assert_eq!(model_pricing.input, 1.4e-6, "{model}");
+            assert_eq!(model_pricing.output, 4.4e-6, "{model}");
+            assert_eq!(model_pricing.cache_read, cache_read, "{model}");
+        }
     }
 
     #[test]
