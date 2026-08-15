@@ -681,12 +681,12 @@ impl PricingMap {
 
     /// A live LiteLLM refresh replaces whole entries, so re-apply what the
     /// built-ins know and the refresh does not publish: the long-context
-    /// rates and the z.ai cache semantics the GLM entries carry. Entries
-    /// whose refresh published those fields stay untouched, and user
-    /// overrides still get the final word afterwards.
+    /// rates and the z.ai cache semantics the GLM entries carry. Only the
+    /// non-destructive GLM block runs here - the full built-in loader also
+    /// pins base rates for models such as gpt-5.2 that a fresh snapshot may
+    /// have repriced - and user overrides still get the final word.
     fn reapply_unpublished_builtins(&mut self) {
-        let fast_multiplier_overrides = FastMultiplierOverrides::load();
-        self.put_builtin_pricing(&fast_multiplier_overrides);
+        self.put_builtin_glm_entries();
         self.fill_long_context_rates_from_models_dev();
     }
 
@@ -1347,6 +1347,75 @@ impl PricingMap {
     /// rates stay whatever the loaded snapshot says - overwriting them froze
     /// stale prices before - and only the cache fields are patched, and only
     /// when the snapshot did not publish them itself.
+    /// The z.ai GLM entries. Every insertion here is non-destructive -
+    /// `put_builtin_glm` patches only unpublished cache fields on existing
+    /// entries - so this block is also safe to re-run after a live pricing
+    /// refresh has replaced entries without publishing cache fields.
+    fn put_builtin_glm_entries(&mut self) {
+        // Source: https://docs.z.ai/guides/overview/pricing
+        let glm_pricing = |input: f64, output: f64, cache_read: f64| Pricing {
+            input,
+            output,
+            cache_create: 0.0,
+            cache_read,
+            cache_read_explicit: true,
+            cache_create_explicit: true,
+            input_above_200k: None,
+            output_above_200k: None,
+            cache_create_above_200k: None,
+            cache_read_above_200k: None,
+            long_context_threshold: None,
+            fast_multiplier: 1.0,
+        };
+        let glm_base = glm_pricing(0.6e-6, 2.2e-6, 0.11e-6);
+        self.put_builtin_glm("glm-4.5", glm_base);
+        self.put_builtin_glm("zai/glm-4.5", glm_base);
+        self.put_builtin_glm("zai/glm-4.5-x", glm_pricing(2.2e-6, 8.9e-6, 0.45e-6));
+        self.put_builtin_glm("zai/glm-4.5-air", glm_pricing(0.2e-6, 1.1e-6, 0.03e-6));
+        self.put_builtin_glm("zai/glm-4.5-airx", glm_pricing(1.1e-6, 4.5e-6, 0.22e-6));
+        self.put_builtin_glm("zai/glm-4.5v", glm_pricing(0.6e-6, 1.8e-6, 0.11e-6));
+        self.put_builtin_glm("zai/glm-4-32b-0414-128k", glm_pricing(0.1e-6, 0.1e-6, 0.0));
+        self.put_builtin_glm("zai/glm-4.5-flash", glm_pricing(0.0, 0.0, 0.0));
+        self.put_builtin_glm("glm-4.6", glm_base);
+        self.put_builtin_glm("glm-4.7", glm_base);
+        self.put_builtin_entry(
+            "glm-5".to_string(),
+            Pricing {
+                input: 1.0e-6,
+                output: 3.2e-6,
+                cache_read: 0.2e-6,
+                ..glm_base
+            },
+        );
+        self.put_builtin_entry(
+            "glm-5-turbo".to_string(),
+            Pricing {
+                input: 1.2e-6,
+                output: 4.0e-6,
+                cache_read: 0.24e-6,
+                ..glm_base
+            },
+        );
+        self.put_builtin_entry(
+            "glm-5.1".to_string(),
+            Pricing {
+                input: 1.4e-6,
+                output: 4.4e-6,
+                cache_read: 0.26e-6,
+                ..glm_base
+            },
+        );
+        // zcode reports model ids in the exact case it logs them ("GLM-5.2"),
+        // and the lowercase zai/ variants cover API-style lookups; rates follow
+        // the models.dev snapshot until it publishes these spellings itself.
+        for model in ["glm-5.2", "GLM-5.2", "zai/glm-5.2"] {
+            self.put_builtin_glm(model, glm_pricing(1.4e-6, 4.4e-6, 0.28e-6));
+        }
+        for model in ["glm-5.3", "GLM-5.3", "zai/glm-5.3"] {
+            self.put_builtin_glm(model, glm_pricing(1.4e-6, 4.4e-6, 0.26e-6));
+        }
+    }
+
     fn put_builtin_glm(&mut self, model: &str, pricing: Pricing) {
         match self.entries.entry(model.to_string()) {
             std::collections::hash_map::Entry::Occupied(mut existing) => {
@@ -1796,68 +1865,7 @@ impl PricingMap {
                 },
             );
         }
-        // Source: https://docs.z.ai/guides/overview/pricing
-        let glm_pricing = |input: f64, output: f64, cache_read: f64| Pricing {
-            input,
-            output,
-            cache_create: 0.0,
-            cache_read,
-            cache_read_explicit: true,
-            cache_create_explicit: true,
-            input_above_200k: None,
-            output_above_200k: None,
-            cache_create_above_200k: None,
-            cache_read_above_200k: None,
-            long_context_threshold: None,
-            fast_multiplier: 1.0,
-        };
-        let glm_base = glm_pricing(0.6e-6, 2.2e-6, 0.11e-6);
-        self.put_builtin_glm("glm-4.5", glm_base);
-        self.put_builtin_glm("zai/glm-4.5", glm_base);
-        self.put_builtin_glm("zai/glm-4.5-x", glm_pricing(2.2e-6, 8.9e-6, 0.45e-6));
-        self.put_builtin_glm("zai/glm-4.5-air", glm_pricing(0.2e-6, 1.1e-6, 0.03e-6));
-        self.put_builtin_glm("zai/glm-4.5-airx", glm_pricing(1.1e-6, 4.5e-6, 0.22e-6));
-        self.put_builtin_glm("zai/glm-4.5v", glm_pricing(0.6e-6, 1.8e-6, 0.11e-6));
-        self.put_builtin_glm("zai/glm-4-32b-0414-128k", glm_pricing(0.1e-6, 0.1e-6, 0.0));
-        self.put_builtin_glm("zai/glm-4.5-flash", glm_pricing(0.0, 0.0, 0.0));
-        self.put_builtin_glm("glm-4.6", glm_base);
-        self.put_builtin_glm("glm-4.7", glm_base);
-        self.put_builtin_entry(
-            "glm-5".to_string(),
-            Pricing {
-                input: 1.0e-6,
-                output: 3.2e-6,
-                cache_read: 0.2e-6,
-                ..glm_base
-            },
-        );
-        self.put_builtin_entry(
-            "glm-5-turbo".to_string(),
-            Pricing {
-                input: 1.2e-6,
-                output: 4.0e-6,
-                cache_read: 0.24e-6,
-                ..glm_base
-            },
-        );
-        self.put_builtin_entry(
-            "glm-5.1".to_string(),
-            Pricing {
-                input: 1.4e-6,
-                output: 4.4e-6,
-                cache_read: 0.26e-6,
-                ..glm_base
-            },
-        );
-        // zcode reports model ids in the exact case it logs them ("GLM-5.2"),
-        // and the lowercase zai/ variants cover API-style lookups; rates follow
-        // the models.dev snapshot until it publishes these spellings itself.
-        for model in ["glm-5.2", "GLM-5.2", "zai/glm-5.2"] {
-            self.put_builtin_glm(model, glm_pricing(1.4e-6, 4.4e-6, 0.28e-6));
-        }
-        for model in ["glm-5.3", "GLM-5.3", "zai/glm-5.3"] {
-            self.put_builtin_glm(model, glm_pricing(1.4e-6, 4.4e-6, 0.26e-6));
-        }
+        self.put_builtin_glm_entries();
         self.context_limits.insert("gpt-5.5".to_string(), 1_050_000);
         self.context_limits
             .insert("grok-4.3".to_string(), 1_000_000);
@@ -2494,6 +2502,23 @@ mod tests {
         assert_eq!(model_pricing.output, 4.4e-6);
         assert_eq!(model_pricing.cache_read, 0.26e-6);
         assert_eq!(model_pricing.cache_create, 0.0);
+    }
+
+    #[test]
+    fn live_refresh_keeps_refreshed_base_rates_for_pinned_models() {
+        let mut pricing = PricingMap::load_embedded();
+        let json =
+            r#"{"gpt-5.2": {"input_cost_per_token": 9.9e-6, "output_cost_per_token": 19.9e-6}}"#;
+        assert!(pricing.load_json(json) > 0);
+
+        pricing.reapply_unpublished_builtins();
+        let model_pricing = pricing.find("gpt-5.2").unwrap();
+
+        // gpt-5.2 is pinned by a raw built-in insert, so the reapplication
+        // must not run the full built-in loader and freeze its rates over the
+        // freshly refreshed ones.
+        assert_eq!(model_pricing.input, 9.9e-6);
+        assert_eq!(model_pricing.output, 19.9e-6);
     }
 
     #[test]
