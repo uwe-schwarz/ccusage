@@ -670,13 +670,24 @@ impl PricingMap {
             }
         }
 
-        // A live LiteLLM refresh replaces whole entries, so re-apply the
-        // built-in long-context rates it does not publish before user
+        // A live LiteLLM refresh replaces whole entries, so re-apply what the
+        // built-ins know and the refresh does not publish before user
         // overrides get the final word.
-        map.fill_long_context_rates_from_models_dev();
+        map.reapply_unpublished_builtins();
         map.enable_models_dev_fallback = !offline;
         map.apply_overrides(overrides);
         map
+    }
+
+    /// A live LiteLLM refresh replaces whole entries, so re-apply what the
+    /// built-ins know and the refresh does not publish: the long-context
+    /// rates and the z.ai cache semantics the GLM entries carry. Entries
+    /// whose refresh published those fields stay untouched, and user
+    /// overrides still get the final word afterwards.
+    fn reapply_unpublished_builtins(&mut self) {
+        let fast_multiplier_overrides = FastMultiplierOverrides::load();
+        self.put_builtin_pricing(&fast_multiplier_overrides);
+        self.fill_long_context_rates_from_models_dev();
     }
 
     pub fn load_json(&mut self, json: &str) -> usize {
@@ -2466,6 +2477,23 @@ mod tests {
             assert_eq!(model_pricing.output, 4.4e-6, "{model}");
             assert_eq!(model_pricing.cache_read, cache_read, "{model}");
         }
+    }
+
+    #[test]
+    fn live_refresh_without_cache_fields_keeps_glm_cache_rates() {
+        let mut pricing = PricingMap::load_embedded();
+        let json = r#"{"GLM-5.3": {"input_cost_per_token": 0.0014e-3, "output_cost_per_token": 0.0044e-3}}"#;
+        assert!(pricing.load_json(json) > 0);
+        pricing.reapply_unpublished_builtins();
+
+        let model_pricing = pricing.find("GLM-5.3").unwrap();
+        // The refresh supplied the base rates; the z.ai cache semantics the
+        // refresh did not publish come back from the built-ins instead of the
+        // LiteLLM input-derived fallbacks (input * 1.25 / input * 0.1).
+        assert_eq!(model_pricing.input, 1.4e-6);
+        assert_eq!(model_pricing.output, 4.4e-6);
+        assert_eq!(model_pricing.cache_read, 0.26e-6);
+        assert_eq!(model_pricing.cache_create, 0.0);
     }
 
     #[test]
