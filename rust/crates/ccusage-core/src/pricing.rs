@@ -121,6 +121,12 @@ pub struct PricingMap {
     context_limits: FxHashMap<String, u64>,
     enable_models_dev_fallback: bool,
     enable_embedded_models_dev_fallback: bool,
+    /// Model keys whose pricing a user override or a live refresh supplied,
+    /// as opposed to the embedded snapshots and built-ins. Lookups with
+    /// several candidate spellings prefer these so a repriced alias wins
+    /// over a frozen built-in spelling of the same model.
+    repriced: FxHashSet<String>,
+    mark_repriced: bool,
     find_cache: OnceLock<Mutex<FxHashMap<String, Option<Pricing>>>>,
 }
 
@@ -213,6 +219,8 @@ impl Default for PricingMap {
             context_limits: FxHashMap::default(),
             enable_models_dev_fallback: false,
             enable_embedded_models_dev_fallback: false,
+            repriced: FxHashSet::default(),
+            mark_repriced: false,
             find_cache: OnceLock::new(),
         }
     }
@@ -692,7 +700,10 @@ impl PricingMap {
 
     pub fn load_json(&mut self, json: &str) -> usize {
         let fast_multiplier_overrides = FastMultiplierOverrides::load();
-        self.load_json_with_overrides(json, &fast_multiplier_overrides)
+        self.mark_repriced = true;
+        let loaded = self.load_json_with_overrides(json, &fast_multiplier_overrides);
+        self.mark_repriced = false;
+        loaded
     }
 
     fn load_json_with_overrides(
@@ -722,6 +733,9 @@ impl PricingMap {
                 .and_then(|entry| entry.fast)
                 .or_else(|| fast_multiplier_overrides.multiplier_for(&model))
                 .unwrap_or(1.0);
+            if self.mark_repriced {
+                self.repriced.insert(model.clone());
+            }
             self.entries.insert(
                 model.clone(),
                 Pricing {
@@ -978,6 +992,12 @@ impl PricingMap {
         loaded_count
     }
 
+    /// Whether a user override or a live refresh supplied this exact key's
+    /// pricing, rather than the embedded snapshots or built-ins.
+    pub fn is_repriced(&self, model: &str) -> bool {
+        self.repriced.contains(model)
+    }
+
     pub fn find(&self, model: &str) -> Option<Pricing> {
         // Fast path: check the model-level cache first. When the same model
         // name is looked up repeatedly (e.g. across thousands of entries with
@@ -1185,6 +1205,7 @@ impl PricingMap {
     }
 
     fn apply_override(&mut self, model: &str, override_value: &PricingOverride) {
+        self.repriced.insert(model.to_string());
         let base = self
             .entries
             .get(model)

@@ -101,13 +101,20 @@ pub(super) fn to_loaded_entry(
     pricing: &PricingMap,
 ) -> LoadedEntry {
     let candidates = model_candidates(&entry.model);
-    // Candidate precedence is pricing existence, not a positive cost: an
-    // override that prices a model at exactly zero (for example a
-    // subscription-backed flat-rate GLM id) must stay authoritative instead
-    // of falling through to the next alias.
+    // Candidate precedence is repriced first, then pricing existence, never a
+    // positive cost: an override that prices a model at exactly zero (for
+    // example a subscription-backed flat-rate GLM id) must stay authoritative
+    // instead of falling through to the next alias, and pricing refreshed or
+    // overridden under the provider-qualified alias must win over the frozen
+    // raw built-in spelling.
     let cost = candidates
         .iter()
-        .find(|candidate| pricing.find(candidate).is_some())
+        .find(|candidate| pricing.is_repriced(candidate))
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|candidate| pricing.find(candidate).is_some())
+        })
         .map(|candidate| {
             calculate_cost_for_usage(Some(candidate), entry.usage, None, mode, Some(pricing))
         })
@@ -284,6 +291,32 @@ mod tests {
 
         assert_eq!(loaded.cost, 0.0);
         assert_eq!(loaded.missing_pricing_model, None);
+    }
+
+    #[test]
+    fn repriced_alias_wins_over_frozen_raw_builtin() {
+        let repriced_alias = crate::cli::PricingOverride {
+            input_cost_per_token: Some(2e-6),
+            output_cost_per_token: Some(8e-6),
+            cache_read_input_token_cost: Some(0.5e-6),
+            ..crate::cli::PricingOverride::default()
+        };
+        let pricing = PricingMap::load_with_overrides(
+            true,
+            false,
+            std::iter::once((&"zai/glm-5.3".to_string(), &repriced_alias)),
+        );
+
+        let loaded = to_loaded_entry(
+            entry("GLM-5.3", glm_usage()),
+            None,
+            CostMode::Calculate,
+            &pricing,
+        );
+
+        // 700 * 2 + 300 * 8 + 200 * 0.5, per million tokens - the alias
+        // rates, not the built-in raw spelling's 1.4 / 4.4 / 0.26.
+        assert!((loaded.cost - 0.0039).abs() < 1e-9);
     }
 
     #[test]
