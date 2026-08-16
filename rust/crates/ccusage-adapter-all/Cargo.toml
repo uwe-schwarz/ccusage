@@ -15,6 +15,7 @@ ccusage-adapter-droid.workspace = true
 ccusage-adapter-gemini.workspace = true
 ccusage-adapter-goose.workspace = true
 ccusage-adapter-grok.workspace = true
+ccusage-adapter-zcode.workspace = true
 ccusage-adapter-hermes.workspace = true
 ccusage-adapter-kilo.workspace = true
 ccusage-adapter-kimi.workspace = true
@@ -29,4 +30,5 @@ serde_json.workspace = true
 
 [dev-dependencies]
 ccusage-test-support.workspace = true
+sqlite.workspace = true
 insta.workspace = true

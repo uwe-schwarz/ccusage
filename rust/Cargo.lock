@@ -137,6 +137,7 @@ dependencies = [
  "ccusage-adapter-opencode",
  "ccusage-adapter-pi",
  "ccusage-adapter-qwen",
+ "ccusage-adapter-zcode",
  "ccusage-cli",
  "ccusage-cli-parser",
  "ccusage-config",
@@ -169,12 +170,14 @@ dependencies = [
  "ccusage-adapter-opencode",
  "ccusage-adapter-pi",
  "ccusage-adapter-qwen",
+ "ccusage-adapter-zcode",
  "ccusage-cli",
  "ccusage-core",
  "ccusage-test-support",
  "insta",
  "serde",
  "serde_json",
+ "sqlite",
 ]
 
 [[package]]
@@ -386,6 +389,20 @@ dependencies = [
  "jiff",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "ccusage-adapter-zcode"
+version = "0.0.0"
+dependencies = [
+ "ccusage-adapter-common",
+ "ccusage-core",
+ "ccusage-test-support",
+ "insta",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sqlite",
 ]
 
 [[package]]
